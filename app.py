@@ -9,44 +9,77 @@ import pandas as pd
 import pytz
 
 # ==========================================
-# --- KONFIGURASI HALAMAN & CSS ---
+# --- KONFIGURASI HALAMAN & CSS ADAPTIF ---
 # ==========================================
 st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS untuk UI yang lebih modern dan Mobile Friendly
+# CSS: Menggunakan Variabel Streamlit agar otomatis Terang/Gelap
 st.markdown("""
 <style>
-    /* Hilangkan padding atas default agar lebih compact di HP */
+    /* CSS Variables untuk adaptasi tema otomatis */
+    :root {
+        --card-bg: var(--secondary-background-color);
+        --text-main: var(--text-color);
+        --border-color: var(--background-color);
+    }
+
+    /* Hilangkan padding atas default */
     .block-container {
         padding-top: 2rem;
-        padding-bottom: 2rem;
+        padding-bottom: 3rem;
     }
     
-    /* Card Style untuk Event dan Transaksi */
-    .stCard {
-        background-color: #262730;
+    /* Card Style Custom */
+    .custom-card {
+        background-color: var(--card-bg);
+        color: var(--text-main);
         padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        border-left: 5px solid #4CAF50;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        border-radius: 8px;
+        margin-bottom: 12px;
+        border: 1px solid rgba(128, 128, 128, 0.2); /* Border halus */
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border-left-width: 6px; /* Tebal border kiri */
+        border-left-style: solid;
+    }
+
+    /* Warna Kategori (Border Kiri) */
+    .b-kuliah { border-left-color: #7286ff !important; }
+    .b-acara { border-left-color: #ffb74d !important; }
+    .b-tugas { border-left-color: #e57373 !important; }
+    .b-in { border-left-color: #66bb6a !important; }
+    .b-out { border-left-color: #ef5350 !important; }
+
+    /* Elemen di dalam Card */
+    .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 600;
+        margin-bottom: 4px;
     }
     
-    /* Warna border berbeda untuk tipe event */
-    .border-KULIAH { border-left-color: #7286ff !important; }
-    .border-ACARA { border-left-color: #ffb74d !important; }
-    .border-TUGAS { border-left-color: #e57373 !important; }
-    .border-IN { border-left-color: #66bb6a !important; } /* Hijau */
-    .border-OUT { border-left-color: #ef5350 !important; } /* Merah */
+    .card-time {
+        font-size: 0.85rem;
+        background-color: var(--background-color);
+        padding: 2px 8px;
+        border-radius: 12px;
+        opacity: 0.9;
+    }
 
-    /* Typography */
-    h3 { font-size: 1.2rem !important; margin-bottom: 0.5rem !important; }
-    p { margin-bottom: 0.2rem !important; font-size: 0.9rem; }
-    .small-text { font-size: 0.8rem; color: #a0a0a0; }
-    .big-amt { font-weight: bold; font-size: 1.1rem; }
+    .card-sub {
+        font-size: 0.85rem;
+        opacity: 0.7;
+    }
     
-    /* Tombol Action (Edit/Delete) agar sejajar */
-    .action-btn-container { display: flex; gap: 5px; }
+    .card-amt {
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
+
+    /* Override tombol agar full width di mobile */
+    div.stButton > button {
+        width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -112,11 +145,6 @@ def init_services():
 db, calendar_service = init_services()
 
 # --- FUNGSI HELPER ---
-def clean_html(raw_html):
-    if not raw_html: return ""
-    cleanr = re.compile('<.*?>')
-    return re.sub(cleanr, '', raw_html).strip()
-
 def get_merged_events(service):
     if not service: return []
     all_events = []
@@ -138,7 +166,6 @@ def get_merged_events(service):
         all_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
         return all_events[:15]
     except Exception as e:
-        st.error(f"Gagal mengambil data kalender: {e}")
         return []
 
 def format_rupiah(angka):
@@ -149,12 +176,11 @@ def format_rupiah(angka):
 # ==========================================
 
 st.title("🚀 Rashif's Space")
-st.caption(f"Update Terakhir: {datetime.datetime.now(WIB).strftime('%d %B %Y %H:%M WIB')}")
+st.caption(f"Update: {datetime.datetime.now(WIB).strftime('%d %B %Y %H:%M WIB')}")
 
-# Layout kolom: Di HP akan otomatis stack ke bawah
 col_jadwal, col_dummy, col_keuangan = st.columns([1, 0.1, 1.2]) 
 
-# --- MODUL 1: JADWAL (CARD STYLE) ---
+# --- MODUL 1: JADWAL ---
 with col_jadwal:
     st.subheader("📅 Agenda")
     
@@ -163,17 +189,15 @@ with col_jadwal:
         if not events:
             st.info("🎉 Tidak ada agenda mendatang.")
         else:
-            # Grouping sederhana untuk UX lebih baik
             today = datetime.datetime.now(WIB).date()
             tomorrow = today + datetime.timedelta(days=1)
-            
             current_group = None
             
             for event in events:
                 start = event['start']
                 source = event.get('_source', 'UMUM')
                 icon = ICON_MAP.get(source, "📅")
-
+                
                 # Parsing Waktu
                 if 'dateTime' in start:
                     dt_obj = datetime.datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
@@ -185,39 +209,38 @@ with col_jadwal:
                     ev_date = t_obj.date()
                     jam_str = "Seharian"
 
-                # Tentukan Label Group
+                # Grouping Tanggal
                 if ev_date == today: group_label = "Hari Ini"
                 elif ev_date == tomorrow: group_label = "Besok"
-                else: group_label = ev_date.strftime("%d %B %Y") # Format tanggal lainnya
+                else: group_label = ev_date.strftime("%d %B %Y")
 
-                # Tampilkan Header Group jika berubah
                 if group_label != current_group:
                     st.markdown(f"**{group_label}**")
                     current_group = group_label
 
-                # Render Card HTML
-                loc = f"📍 {event['location'][:20]}..." if 'location' in event else ""
-                html_card = f"""
-                <div class="stCard border-{source}">
-                    <div style="display:flex; justify-content:space-between;">
-                        <span style="font-weight:bold;">{icon} {event['summary']}</span>
-                        <span style="background:#333; padding:2px 6px; border-radius:4px; font-size:0.8rem;">{jam_str}</span>
-                    </div>
-                    <div class="small-text" style="margin-top:5px;">
-                        {loc}
-                    </div>
-                </div>
-                """
-                st.markdown(html_card, unsafe_allow_html=True)
+                # Render HTML (Tanpa Indentasi di dalam f-string untuk mencegah bug)
+                loc = f"📍 {event['location'][:25]}..." if 'location' in event else ""
+                
+                # Tentukan class CSS berdasarkan sumber (b-kuliah, b-acara, dll)
+                css_class = f"b-{source.lower()}"
+                
+                st.markdown(f"""
+<div class="custom-card {css_class}">
+    <div class="card-header">
+        <span>{icon} {event['summary']}</span>
+        <span class="card-time">{jam_str}</span>
+    </div>
+    <div class="card-sub">{loc}</div>
+</div>
+""", unsafe_allow_html=True)
                 
     else:
         st.warning("Google Service Offline")
 
-# --- MODUL 2: KEUANGAN (DASHBOARD STYLE) ---
+# --- MODUL 2: KEUANGAN ---
 with col_keuangan:
     st.subheader("💰 Keuangan")
     
-    # Ambil Data dulu untuk Dashboard
     df = pd.DataFrame()
     raw_data = []
     
@@ -230,35 +253,32 @@ with col_keuangan:
         
         if raw_data:
             df = pd.DataFrame(raw_data)
-            df['Tanggal'] = pd.to_datetime(df['timestamp']).dt.date
     
-    # 1. Dashboard Mini (Metrics)
+    # Dashboard Metrics
     if not df.empty:
-        # Filter bulan ini sederhana (opsional, disini ambil total dari 50 transaksi terakhir)
         tot_in = df[df['type']=='IN']['amount'].sum()
         tot_out = df[df['type']=='OUT']['amount'].sum()
         saldo = tot_in - tot_out
         
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Saldo", f"{saldo/1000:.0f}k", delta_color="normal")
-        m2.metric("Masuk", f"{tot_in/1000:.0f}k", delta="📈")
-        m3.metric("Keluar", f"{tot_out/1000:.0f}k", delta="-📉")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Saldo", f"{saldo/1000:.0f}k")
+        c2.metric("Masuk", f"{tot_in/1000:.0f}k", delta="📈")
+        c3.metric("Keluar", f"{tot_out/1000:.0f}k", delta="-📉")
         st.divider()
 
-    # Tabs UI
-    tab_in, tab_hist = st.tabs(["📝 Input / Edit", "📜 Riwayat"])
+    tab_in, tab_hist = st.tabs(["📝 Input", "📜 Riwayat"])
 
     with tab_in:
         # Mode Edit UI
         if st.session_state.edit_mode:
-            st.warning(f"Sedang mengedit: {st.session_state.edit_data.get('item')}")
+            st.info(f"✏️ Edit: **{st.session_state.edit_data.get('item')}**")
             def_tipe = 1 if st.session_state.edit_data.get('type') == 'IN' else 0
             def_item = st.session_state.edit_data.get('item')
             def_amt = st.session_state.edit_data.get('amount')
-            btn_label = "💾 Update Perubahan"
+            btn_txt = "Update"
         else:
             def_tipe, def_item, def_amt = 0, "", 0
-            btn_label = "✅ Simpan Transaksi"
+            btn_txt = "Simpan"
 
         with st.form("form_finance", clear_on_submit=not st.session_state.edit_mode):
             c_tipe, c_tgl = st.columns(2)
@@ -274,11 +294,12 @@ with col_keuangan:
                 kat_list = ["Makan", "Transport", "Jajan", "Pendidikan", "Belanja", "Lainnya"]
                 t_db = "OUT"
             
-            f_item = st.text_input("Nama Transaksi", value=def_item, placeholder="Contoh: Nasi Goreng")
-            f_amt = st.number_input("Nominal (Rp)", value=int(def_amt), min_value=0, step=1000)
+            f_item = st.text_input("Keterangan", value=def_item, placeholder="Makan Siang...")
+            f_amt = st.number_input("Rp", value=int(def_amt), min_value=0, step=1000)
             f_kat = st.selectbox("Kategori", kat_list)
             
-            submitted = st.form_submit_button(btn_label, use_container_width=True)
+            # Tombol Submit
+            submitted = st.form_submit_button(btn_txt, type="primary")
             
             if submitted:
                 if db:
@@ -287,69 +308,60 @@ with col_keuangan:
                     
                     if st.session_state.edit_mode:
                         db.collection("transactions").document(st.session_state.edit_id).update(payload)
-                        st.success("Data berhasil diupdate!")
+                        st.toast("Data berhasil diperbarui!")
                         st.session_state.edit_mode = False
                         st.session_state.edit_id = None
                         st.session_state.edit_data = {}
                     else:
                         db.collection("transactions").add(payload)
-                        st.success("Data tersimpan!")
+                        st.toast("Data berhasil disimpan!")
                     st.rerun()
-                else:
-                    st.error("Database tidak terkoneksi.")
 
         if st.session_state.edit_mode:
-            if st.button("Batal Edit", use_container_width=True):
+            if st.button("Batal Edit"):
                 st.session_state.edit_mode = False
                 st.rerun()
 
     with tab_hist:
         if raw_data:
-            # Grafik simple
-            st.area_chart(df.pivot_table(index='timestamp', columns='type', values='amount', aggfunc='sum', fill_value=0), height=150, color=["#66bb6a", "#ef5350"])
-            
-            st.write("### Daftar Transaksi")
+            st.caption("50 Transaksi Terakhir")
             for item in raw_data:
-                # Menentukan warna dan simbol
                 is_in = item['type'] == 'IN'
-                color_class = "border-IN" if is_in else "border-OUT"
+                # Pilih class CSS (b-in atau b-out)
+                css_class = "b-in" if is_in else "b-out"
                 symbol = "+" if is_in else "-"
                 color_text = "#66bb6a" if is_in else "#ef5350"
                 
-                # Layout Custom Card untuk Transaksi
+                # Container untuk Card + Tombol
                 with st.container():
-                    col_info, col_act = st.columns([4, 1])
-                    
-                    with col_info:
-                        # Render HTML Card
+                    c_info, c_act = st.columns([5, 1.5])
+                    with c_info:
+                        # Render HTML Card Transaksi
                         st.markdown(f"""
-                        <div class="stCard {color_class}" style="padding: 10px; margin-bottom: 5px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <div>
-                                    <div style="font-weight:bold;">{item['item']}</div>
-                                    <div class="small-text">{item['timestamp'].strftime("%d %b %H:%M")} • {item['category']}</div>
-                                </div>
-                                <div class="big-amt" style="color:{color_text};">
-                                    {symbol} {format_rupiah(item['amount'])}
-                                </div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col_act:
-                        # Tombol Edit & Delete
-                        # Menggunakan columns lagi agar tombol tidak terlalu besar
-                        st.write("") # Spacer
+<div class="custom-card {css_class}" style="padding:10px; margin-bottom:5px;">
+    <div class="card-header">
+        <span>{item['item']}</span>
+        <span class="card-amt" style="color:{color_text};">{symbol} {format_rupiah(item['amount'])}</span>
+    </div>
+    <div class="card-sub">
+        {item['timestamp'].strftime("%d %b %H:%M")} • {item['category']}
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+                    # Tombol Aksi di Kolom Sempit Kanan
+                    with c_act:
+                         # Jarak vertikal sedikit agar sejajar tengah
+                        st.write("") 
                         b1, b2 = st.columns(2)
                         if b1.button("✏️", key=f"e_{item['id']}"):
                             st.session_state.edit_mode = True
                             st.session_state.edit_id = item['id']
                             st.session_state.edit_data = item
                             st.rerun()
-                        
                         if b2.button("🗑️", key=f"d_{item['id']}"):
                             db.collection("transactions").document(item['id']).delete()
-                            st.toast("Transaksi dihapus!")
+                            st.toast("Terhapus")
                             st.rerun()
         else:
-            st.info("Belum ada data transaksi.")
+            st.info("Belum ada data.")
