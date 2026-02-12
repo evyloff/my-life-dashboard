@@ -171,4 +171,132 @@ with col_keuangan:
             kategori = st.selectbox("Kategori", kategori_list)
             
             # Tombol Submit (Dinamis: Simpan Baru / Update)
+            # PERBAIKAN DI SINI: Tanda kutip sudah dilengkapi
             btn_text = "💾 Update Data" if st.session_state.edit_mode else "✅ Simpan Transaksi"
+            submitted = st.form_submit_button(btn_text)
+            
+            if submitted:
+                if db:
+                    jam_sekarang = datetime.datetime.now().time()
+                    waktu_fix = datetime.datetime.combine(tanggal_transaksi, jam_sekarang)
+                    
+                    data_payload = {
+                        "type": tipe_db,
+                        "item": item,
+                        "amount": nominal,
+                        "category": kategori,
+                        "timestamp": waktu_fix
+                    }
+
+                    if st.session_state.edit_mode:
+                        # LOGIKA UPDATE
+                        db.collection("transactions").document(st.session_state.edit_id).update(data_payload)
+                        st.success("Data berhasil diperbarui!")
+                        # Reset Mode Edit
+                        st.session_state.edit_mode = False
+                        st.session_state.edit_id = None
+                        st.session_state.edit_data = {}
+                    else:
+                        # LOGIKA CREATE
+                        db.collection("transactions").add(data_payload)
+                        st.success("Data berhasil disimpan!")
+                    
+                    st.rerun()
+
+        # Tombol Batal Edit
+        if st.session_state.edit_mode:
+            if st.button("❌ Batal Edit"):
+                st.session_state.edit_mode = False
+                st.rerun()
+
+    # === TAB 2: READ & DELETE & REPORT ===
+    with tab_data:
+        if db:
+            # Kontrol View (Limit)
+            col_filter, col_download = st.columns([2, 1])
+            with col_filter:
+                limit_view = st.selectbox("Tampilkan Data:", [10, 50, 100, "Semua (Hati-hati berat)"])
+            
+            # Logic Query Firebase
+            query = db.collection("transactions").order_by("timestamp", direction=firestore.Query.DESCENDING)
+            
+            if limit_view != "Semua (Hati-hati berat)":
+                query = query.limit(limit_view)
+            
+            docs = query.stream()
+            
+            # Konversi ke List of Dict dengan ID
+            data_list = []
+            for doc in docs:
+                d = doc.to_dict()
+                d['id'] = doc.id # Penting untuk Edit/Delete
+                data_list.append(d)
+            
+            if data_list:
+                df = pd.DataFrame(data_list)
+                
+                # --- AREA GRAFIK ---
+                with st.expander("📊 Lihat Grafik Tren", expanded=True):
+                    df_chart = df.copy()
+                    df_chart['Tanggal'] = pd.to_datetime(df_chart['timestamp']).dt.date
+                    df_chart['Tipe'] = df_chart['type'].map({'IN': 'Pemasukan', 'OUT': 'Pengeluaran'})
+                    chart_data = df_chart.pivot_table(index='Tanggal', columns='Tipe', values='amount', aggfunc='sum', fill_value=0)
+                    st.line_chart(chart_data, color=["#FF4B4B", "#00CC96"])
+
+                # --- AREA TABEL MANAJEMEN ---
+                st.write("---")
+                st.write("### 🗂️ Daftar Transaksi")
+                
+                # Header Tabel Manual
+                c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 1, 1])
+                c1.write("**Waktu**")
+                c2.write("**Keterangan**")
+                c3.write("**Nominal**")
+                c4.write("**Aksi**")
+                
+                for item in data_list:
+                    c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 0.5, 0.5])
+                    
+                    # Formatting
+                    tgl = item['timestamp'].strftime("%d %b %H:%M")
+                    warna_uang = "🟢" if item['type'] == 'IN' else "🔴"
+                    nom = f"Rp{item['amount']:,}"
+                    
+                    c1.caption(tgl)
+                    c2.write(f"{warna_uang} **{item['item']}**\n\n*{item['category']}*")
+                    c3.write(nom)
+                    
+                    # TOMBOL EDIT ✏️
+                    if c4.button("✏️", key=f"edit_{item['id']}"):
+                        st.session_state.edit_mode = True
+                        st.session_state.edit_id = item['id']
+                        st.session_state.edit_data = item
+                        st.rerun() # Refresh untuk pindah ke Tab 1 otomatis
+                        
+                    # TOMBOL DELETE 🗑️
+                    if c5.button("🗑️", key=f"del_{item['id']}"):
+                        db.collection("transactions").document(item['id']).delete()
+                        st.toast("Data dihapus!")
+                        st.rerun()
+                    
+                    st.divider()
+
+                # --- AREA DOWNLOAD ---
+                with col_download:
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        df_export = pd.DataFrame(data_list)
+                        # Bersihkan kolom ID dan Timestamp object sebelum export
+                        df_export['timestamp'] = df_export['timestamp'].apply(lambda x: x.strftime("%Y-%m-%d %H:%M"))
+                        df_export = df_export.drop(columns=['id'])
+                        df_export.to_excel(writer, sheet_name='Laporan', index=False)
+                    
+                    st.download_button(
+                        label="📥 Download Excel",
+                        data=buffer.getvalue(),
+                        file_name=f'Laporan_Keuangan_{datetime.date.today()}.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+
+            else:
+                st.info("Belum ada data transaksi.")
