@@ -10,20 +10,20 @@ import pytz
 import io
 
 # ==========================================
-# --- 1. KONFIGURASI HALAMAN & CSS MODERN ---
+# --- 1. KONFIGURASI & CSS (UI/UX) ---
 # ==========================================
 st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
-    /* Variabel Warna */
+    /* Variabel Warna & Font */
     :root {
         --bg-color: var(--secondary-background-color);
         --text-color: var(--text-color);
-        --card-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        --card-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
 
-    /* Padding Halaman HP & Laptop */
+    /* Layout Halaman */
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 5rem;
@@ -32,76 +32,88 @@ st.markdown("""
         max-width: 1200px;
     }
 
-    /* --- STYLE 1: KARTU STATISTIK (SALDO/MASUK/KELUAR) --- */
-    .stat-container {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 20px;
-        width: 100%;
-    }
-    
-    .stat-card {
-        background-color: var(--bg-color);
-        border-radius: 12px;
-        padding: 15px;
-        flex: 1; /* Agar lebar rata */
-        text-align: center;
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        box-shadow: var(--card-shadow);
-        transition: transform 0.2s;
-        min-width: 90px; /* Mencegah terlalu gepeng di HP */
-    }
-
-    .stat-card:hover { transform: translateY(-2px); }
-
-    .stat-title { font-size: 0.85rem; opacity: 0.8; margin-bottom: 5px; font-weight: 500; }
-    .stat-value { font-size: 1.4rem; font-weight: 700; margin: 0; }
-    
-    /* Warna Aksen Khusus Statistik */
-    .acc-blue { border-top: 4px solid #4da6ff; color: #4da6ff; }
-    .acc-green { border-top: 4px solid #66bb6a; color: #66bb6a; }
-    .acc-red { border-top: 4px solid #ef5350; color: #ef5350; }
-
-    /* --- STYLE 2: AGENDA & TRANSAKSI LIST --- */
+    /* --- STYLE UTAMA CARD --- */
     .list-card {
         background-color: var(--bg-color);
-        padding: 12px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        border: 1px solid rgba(128, 128, 128, 0.15);
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 8px; /* Jarak antar kartu */
+        border: 1px solid rgba(128, 128, 128, 0.2);
         border-left-width: 5px;
         border-left-style: solid;
+        box-shadow: var(--card-shadow);
+        
+        /* Layout Flexbox: Kiri & Kanan */
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 10px;
     }
 
-    /* Warna Kategori List */
+    /* Warna Border Kiri */
     .b-kuliah { border-left-color: #7286ff; }
     .b-acara { border-left-color: #ffb74d; }
     .b-tugas { border-left-color: #e57373; }
     .b-in { border-left-color: #66bb6a; }
     .b-out { border-left-color: #ef5350; }
 
-    .item-main { font-weight: 600; font-size: 0.95rem; }
-    .item-sub { font-size: 0.8rem; opacity: 0.7; }
+    /* Typography dalam Card */
+    .item-main { 
+        font-weight: 600; 
+        font-size: 1rem; 
+        line-height: 1.2;
+    }
+    .item-sub { 
+        font-size: 0.8rem; 
+        opacity: 0.7; 
+        margin-top: 2px;
+    }
+    
+    /* Bagian Kanan Card (Tanggal/Uang) */
+    .right-content {
+        text-align: right;
+        min-width: 80px; /* Supaya tanggal tidak gepeng */
+        flex-shrink: 0;
+    }
+    .date-text { font-weight: bold; font-size: 0.9rem; }
+    .time-badge { 
+        background-color: rgba(128,128,128,0.15); 
+        padding: 2px 6px; 
+        border-radius: 4px; 
+        font-size: 0.75rem; 
+        display: inline-block;
+        margin-top: 4px;
+    }
     .money-val { font-weight: bold; font-size: 1rem; }
 
-    /* RESPONSIVE HP: Stack kolom & Font Size */
+    /* --- DASHBOARD KEUANGAN (STATISTIK) --- */
+    .stat-container { display: flex; gap: 10px; margin-bottom: 20px; }
+    .stat-card {
+        background-color: var(--bg-color);
+        border-radius: 12px; padding: 15px; flex: 1; text-align: center;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        box-shadow: var(--card-shadow);
+    }
+    .stat-title { font-size: 0.85rem; opacity: 0.8; }
+    .stat-value { font-size: 1.3rem; font-weight: 700; margin-top: 5px; }
+    .acc-blue { border-top: 4px solid #4da6ff; color: #4da6ff; }
+    .acc-green { border-top: 4px solid #66bb6a; color: #66bb6a; }
+    .acc-red { border-top: 4px solid #ef5350; color: #ef5350; }
+
+    /* Responsif HP */
     @media (max-width: 600px) {
-        .stat-container { flex-direction: row; flex-wrap: wrap; } 
-        .stat-card { min-width: 28%; padding: 10px; } /* 3 kolom di HP tapi rapat */
-        .stat-value { font-size: 1.1rem; }
-        .stButton > button { width: 100%; margin-top: 5px; }
+        .stat-container { flex-wrap: wrap; }
+        .stat-card { min-width: 30%; padding: 10px; }
+        .stButton > button { width: 100%; }
+        .item-main { font-size: 0.95rem; }
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# --- 2. LOGIC BACKEND ---
+# --- 2. BACKEND & SERVICES ---
 # ==========================================
 WIB = pytz.timezone('Asia/Jakarta')
-
 DAFTAR_KALENDER = {
     "KULIAH": "7286ff9cd810710bdbc49eb44e4beb288b12b0cd1c7278d741c860eda4dfa019@group.calendar.google.com",
     "ACARA" : "39a66f64cea2cdb4188f78befbcd721976fc5766304e1b029bf99ab746f6ae64@group.calendar.google.com",
@@ -125,8 +137,6 @@ def init_services():
             with open("firebase_key.json") as f: key_dict = json.load(f)
         except: pass
     if not key_dict: return None, None
-
-    # Init Apps
     if not firebase_admin._apps:
         cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred)
@@ -138,7 +148,6 @@ def init_services():
 
 db, calendar_service = init_services()
 
-# --- Helpers ---
 def clean_html(raw_html):
     if not raw_html: return ""
     return re.sub('<.*?>', '', raw_html).strip()
@@ -159,7 +168,6 @@ def get_merged_events(service):
     except: return []
 
 def format_rupiah(angka):
-    # Format K (Ribuan) untuk Card Statistik agar muat di HP
     if angka >= 1000000: return f"{angka/1000000:.1f}Jt"
     if angka >= 1000: return f"{angka/1000:.0f}k"
     return str(angka)
@@ -173,16 +181,16 @@ def format_rupiah_full(angka):
 st.title("🚀 Rashif's Space")
 st.caption(f"📅 {datetime.datetime.now(WIB).strftime('%A, %d %B %Y')}")
 
-# Layout 2 Kolom (Desktop) / Stack (Mobile)
+# Layout Columns
 col_kiri, col_spacer, col_kanan = st.columns([1, 0.1, 1.4])
 
-# --- KOLOM KIRI: JADWAL ---
+# --- MODULE AGENDA ---
 with col_kiri:
     st.subheader("📅 Agenda")
     if calendar_service:
         events = get_merged_events(calendar_service)
         if not events:
-            st.info("Tidak ada agenda.")
+            st.info("Agenda kosong.")
         else:
             for event in events:
                 start = event['start']
@@ -195,31 +203,38 @@ with col_kiri:
                     tgl = dt_obj.strftime("%d %b")
                 else:
                     tgl = datetime.datetime.strptime(start['date'], "%Y-%m-%d").strftime("%d %b")
-                    jam = "Full"
+                    jam = "Seharian"
                 
-                # Render Agenda Card
+                # --- STRUKTUR HTML BARU ---
+                # Kiri: Judul
+                # Kanan: Tanggal & Jam
                 st.markdown(f"""
                 <div class="list-card b-{source.lower()}">
-                    <div>
+                    <div style="flex-grow: 1;">
                         <div class="item-main">{icon} {event['summary']}</div>
-                        <div class="item-sub">🗓️ {tgl} • ⏰ {jam}</div>
+                        {f'<div class="item-sub">📍 {event["location"][:20]}...</div>' if 'location' in event else ''}
+                    </div>
+                    <div class="right-content">
+                        <div class="date-text">{tgl}</div>
+                        <div class="time-badge">⏰ {jam}</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Deskripsi di dalam Expander (Lebih bersih)
+                # Expander Rincian (Hidden by default)
                 desc = clean_html(event.get('description', ''))
                 if desc:
-                    with st.expander("Rincian"):
+                    with st.expander("📝 Rincian", expanded=False):
                         st.write(desc)
-    else:
-        st.warning("Google Calendar Disconnected.")
 
-# --- KOLOM KANAN: KEUANGAN ---
+    else:
+        st.warning("Gagal memuat Kalender.")
+
+# --- MODULE KEUANGAN ---
 with col_kanan:
     st.subheader("💰 Keuangan")
     
-    # Ambil Data
+    # Get Data
     df = pd.DataFrame()
     raw_data = []
     if db:
@@ -230,13 +245,12 @@ with col_kanan:
             raw_data.append(d)
         if raw_data: df = pd.DataFrame(raw_data)
 
-    # --- UI STATISTIK BARU (KOTAK BERWARNA) ---
+    # --- Statistik ---
     if not df.empty:
         tot_in = df[df['type']=='IN']['amount'].sum()
         tot_out = df[df['type']=='OUT']['amount'].sum()
         saldo = tot_in - tot_out
         
-        # HTML Custom untuk Kotak Statistik
         st.markdown(f"""
         <div class="stat-container">
             <div class="stat-card acc-blue">
@@ -254,22 +268,22 @@ with col_kanan:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Belum ada data transaksi.")
+        st.info("Belum ada data.")
 
-    # --- TABS INPUT & RIWAYAT ---
-    tab_in, tab_hist = st.tabs(["📝 Input Transaksi", "📜 Riwayat & Data"])
+    # --- Tabs ---
+    tab_in, tab_hist = st.tabs(["📝 Input", "📜 Riwayat"])
 
     with tab_in:
-        # Form Handling
+        # Form
         if st.session_state.edit_mode:
-            st.markdown(f"**✏️ Mode Edit:** `{st.session_state.edit_data.get('item')}`")
+            st.info(f"✏️ Edit: {st.session_state.edit_data.get('item')}")
             def_tipe = 1 if st.session_state.edit_data.get('type') == 'IN' else 0
             def_item = st.session_state.edit_data.get('item')
             def_amt = st.session_state.edit_data.get('amount')
             btn_txt = "Simpan Perubahan"
         else:
             def_tipe, def_item, def_amt = 0, "", 0
-            btn_txt = "Tambah Transaksi"
+            btn_txt = "Tambah"
 
         with st.form("finance_form", clear_on_submit=not st.session_state.edit_mode):
             c1, c2 = st.columns(2)
@@ -283,7 +297,7 @@ with col_kanan:
                 kat_list = ["Makan", "Transport", "Jajan", "Pendidikan", "Belanja", "Lainnya"]
                 t_db = "OUT"
             
-            f_item = st.text_input("Keterangan", value=def_item, placeholder="Cth: Makan Siang")
+            f_item = st.text_input("Keterangan", value=def_item, placeholder="Cth: Nasi Goreng")
             f_amt = st.number_input("Nominal (Rp)", value=int(def_amt), min_value=0, step=1000)
             f_kat = st.selectbox("Kategori", kat_list)
             
@@ -294,61 +308,49 @@ with col_kanan:
                     
                     if st.session_state.edit_mode:
                         db.collection("transactions").document(st.session_state.edit_id).update(payload)
-                        st.toast("Data Updated!")
+                        st.toast("Berhasil diupdate!")
                         st.session_state.edit_mode = False
                         st.session_state.edit_data = {}
                     else:
                         db.collection("transactions").add(payload)
-                        st.toast("Data Saved!")
+                        st.toast("Berhasil disimpan!")
                     st.rerun()
-
+        
         if st.session_state.edit_mode:
-            if st.button("Batal", use_container_width=True):
-                st.session_state.edit_mode = False
-                st.rerun()
+            if st.button("Batal Edit", use_container_width=True):
+                st.session_state.edit_mode = False; st.rerun()
 
     with tab_hist:
         if raw_data:
-            # Download Excel Logic
+            # Excel
             df_export = df.copy()
-            # Convert timezone aware datetime to string to avoid Excel Error
             df_export['timestamp'] = df_export['timestamp'].apply(lambda x: x.astimezone(WIB).strftime('%Y-%m-%d %H:%M') if pd.notnull(x) else "")
-            
             buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                df_export.to_excel(writer, index=False, sheet_name='Data')
-            
-            st.download_button("📥 Download Excel", data=buf.getvalue(), file_name="Keuangan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            st.write("") # Spacer
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer: df_export.to_excel(writer, index=False, sheet_name='Data')
+            st.download_button("📥 Excel", data=buf.getvalue(), file_name="Keuangan.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            st.write("")
 
-            # List Transaksi
             for item in raw_data:
                 is_in = item['type'] == 'IN'
                 css_cls = "b-in" if is_in else "b-out"
                 color = "#66bb6a" if is_in else "#ef5350"
                 symbol = "+" if is_in else "-"
 
-                # Tampilan List yang Rapi (Menyerupai Mobile App)
+                # List Transaksi (Tetap menggunakan style sebelumnya karena sudah cocok)
                 st.markdown(f"""
                 <div class="list-card {css_cls}">
                     <div style="flex-grow:1;">
                         <div class="item-main">{item['item']}</div>
-                        <div class="item-sub">{item['timestamp'].strftime("%d %b %H:%M")} • {item['category']}</div>
+                        <div class="item-sub">{item['timestamp'].strftime("%d %b")} • {item['category']}</div>
                     </div>
-                    <div class="money-val" style="color:{color}; text-align:right;">
-                        {symbol} {format_rupiah_full(item['amount'])}
+                    <div class="right-content">
+                        <div class="money-val" style="color:{color};">{symbol} {format_rupiah_full(item['amount'])}</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-
-                # Tombol Edit/Delete (Icon Only agar hemat tempat)
-                c_act1, c_act2 = st.columns([1,1])
-                if c_act1.button("✏️ Edit", key=f"e_{item['id']}", use_container_width=True):
-                    st.session_state.edit_mode = True
-                    st.session_state.edit_id = item['id']
-                    st.session_state.edit_data = item
-                    st.rerun()
-                if c_act2.button("🗑️ Hapus", key=f"d_{item['id']}", use_container_width=True):
-                    db.collection("transactions").document(item['id']).delete()
-                    st.toast("Terhapus")
-                    st.rerun()
+                
+                c1, c2 = st.columns([1,1])
+                if c1.button("✏️", key=f"e_{item['id']}", use_container_width=True):
+                    st.session_state.edit_mode = True; st.session_state.edit_id = item['id']; st.session_state.edit_data = item; st.rerun()
+                if c2.button("🗑️", key=f"d_{item['id']}", use_container_width=True):
+                    db.collection("transactions").document(item['id']).delete(); st.rerun()
