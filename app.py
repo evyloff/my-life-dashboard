@@ -11,6 +11,12 @@ import io
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide")
 
+# --- INITIALIZE SESSION STATE (Untuk Fitur Edit) ---
+if 'edit_mode' not in st.session_state:
+    st.session_state.edit_mode = False
+    st.session_state.edit_id = None
+    st.session_state.edit_data = {}
+
 # --- KONEKSI DATABASE & KALENDER (CACHED) ---
 @st.cache_resource
 def init_services():
@@ -81,7 +87,7 @@ def get_upcoming_events(service, max_results=10):
 # --- UI UTAMA ---
 st.title("🚀 Rashif's Command Center")
 
-col_jadwal, col_keuangan = st.columns([1, 1.2]) # Kolom kanan sedikit lebih lebar
+col_jadwal, col_keuangan = st.columns([1, 1.5]) 
 
 # --- MODUL 1: JADWAL KULIAH ---
 with col_jadwal:
@@ -111,114 +117,58 @@ with col_jadwal:
     else:
         st.warning("Servis Kalender belum aktif.")
 
-# --- MODUL 2: MANAJEMEN KEUANGAN (TABS) ---
+# --- MODUL 2: FULL CRUD KEUANGAN ---
 with col_keuangan:
-    st.subheader("💰 Dompet Digital")
+    st.subheader("💰 Manajemen Keuangan")
     
-    # MEMBUAT 3 TAB TERPISAH
-    tab_input, tab_grafik, tab_hapus = st.tabs(["📝 Input Data", "📊 Grafik & Laporan", "🗑️ Riwayat & Hapus"])
+    # Tab Navigasi
+    tab_input, tab_data = st.tabs(["📝 Form Input & Edit", "📊 Data & Laporan"])
 
-    # === TAB 1: INPUT DATA ===
+    # === TAB 1: CREATE & UPDATE ===
     with tab_input:
-        tipe_transaksi = st.radio("Jenis", ["Pengeluaran 📉", "Pemasukan 📈"], horizontal=True)
-
-        if tipe_transaksi == "Pemasukan 📈":
-            kategori_list = ["Uang Saku", "Gaji/Freelance", "Hadiah/Bonus", "Investasi Return", "Lainnya"]
-            label_nominal = "Jumlah Masuk (Rp)"
-            tipe_db = "IN"
+        # Judul Form berubah tergantung Mode (Tambah Baru / Edit)
+        if st.session_state.edit_mode:
+            st.warning(f"✏️ Sedang Mengedit Transaksi: {st.session_state.edit_data.get('item')}")
+            # Load data lama ke variabel default
+            default_tipe = 1 if st.session_state.edit_data.get('type') == 'IN' else 0
+            default_item = st.session_state.edit_data.get('item')
+            default_amount = st.session_state.edit_data.get('amount')
+            
+            # Cek kategori agar tidak error jika kategori lama tidak ada di list
+            cat_val = st.session_state.edit_data.get('category')
+            # List gabungan sementara untuk menghindari error index
+            temp_options = [cat_val] + ["Makan & Minum", "Transportasi", "Pendidikan/Buku", "Hobi & Game", "Uang Saku", "Gaji", "Lainnya"]
+            default_cat_index = 0 
         else:
-            kategori_list = ["Makan & Minum", "Transportasi", "Pendidikan/Buku", "Hobi & Game", "Belanja Bulanan", "Investasi Keluar"]
-            label_nominal = "Jumlah Keluar (Rp)"
-            tipe_db = "OUT"
+            st.info("➕ Tambah Transaksi Baru")
+            default_tipe = 0
+            default_item = ""
+            default_amount = 0
+            default_cat_index = 0
 
+        # --- FORMULIR ---
         with st.form("form_keuangan"):
-            item = st.text_input("Keterangan", placeholder="Contoh: Beli Buku Kalkulus")
-            nominal = st.number_input(label_nominal, min_value=0, step=1000)
-            kategori = st.selectbox("Kategori", kategori_list)
-            tanggal_transaksi = st.date_input("Tanggal", datetime.date.today())
+            c1, c2 = st.columns(2)
             
-            if st.form_submit_button("Simpan Transaksi"):
-                if db:
-                    jam_sekarang = datetime.datetime.now().time()
-                    waktu_fix = datetime.datetime.combine(tanggal_transaksi, jam_sekarang)
-                    db.collection("transactions").add({
-                        "type": tipe_db,
-                        "item": item,
-                        "amount": nominal,
-                        "category": kategori,
-                        "timestamp": waktu_fix
-                    })
-                    st.success("Data berhasil disimpan!")
-                    st.rerun()
-
-    # === TAB 2: GRAFIK & LAPORAN ===
-    with tab_grafik:
-        if db:
-            docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.ASCENDING).stream()
-            data = [doc.to_dict() for doc in docs]
+            with c1:
+                tipe_opsi = ["Pengeluaran 📉", "Pemasukan 📈"]
+                tipe_transaksi = st.radio("Jenis", tipe_opsi, index=default_tipe, horizontal=True)
             
-            if data:
-                df = pd.DataFrame(data)
-                df['Tanggal'] = pd.to_datetime(df['timestamp']).dt.date
-                df['Tipe'] = df['type'].map({'IN': 'Pemasukan', 'OUT': 'Pengeluaran'})
-                
-                # Grafik
-                st.caption("Tren Keuangan Harian")
-                chart_data = df.pivot_table(index='Tanggal', columns='Tipe', values='amount', aggfunc='sum', fill_value=0)
-                st.line_chart(chart_data, color=["#FF4B4B", "#00CC96"])
+            with c2:
+                tanggal_transaksi = st.date_input("Tanggal", datetime.date.today())
 
-                # Download Excel
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    df_export = df[['Tanggal', 'Tipe', 'category', 'item', 'amount']].copy()
-                    df_export.to_excel(writer, sheet_name='Laporan Keuangan', index=False)
-                
-                st.download_button(
-                    label="📥 Download Excel (.xlsx)",
-                    data=buffer.getvalue(),
-                    file_name=f'Laporan_Keuangan_{datetime.date.today()}.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                )
+            # Logika List Kategori
+            if tipe_transaksi == "Pemasukan 📈":
+                kategori_list = ["Uang Saku", "Gaji/Freelance", "Hadiah/Bonus", "Investasi Return", "Lainnya"]
+                tipe_db = "IN"
             else:
-                st.info("Belum ada data.")
-
-    # === TAB 3: RIWAYAT & HAPUS (BARU) ===
-    with tab_hapus:
-        st.write("Daftar 10 Transaksi Terakhir (Klik tombol 'Hapus' untuk membatalkan)")
-        
-        if db:
-            # Ambil data beserta ID Dokumennya
-            docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(10).stream()
+                kategori_list = ["Makan & Minum", "Transportasi", "Pendidikan/Buku", "Hobi & Game", "Belanja Bulanan", "Investasi Keluar", "Lainnya"]
+                tipe_db = "OUT"
             
-            # Kita loop manual agar bisa pasang tombol di sebelah setiap item
-            found_data = False
-            for doc in docs:
-                found_data = True
-                d = doc.to_dict()
-                doc_id = doc.id # Kunci Unik Dokumen
-                
-                # Format Tampilan Baris
-                tgl = d['timestamp'].strftime("%d %b")
-                keterangan = f"**{d['item']}** ({d['category']})"
-                nominal_fmt = f"Rp{d['amount']:,}"
-                warna = "🟢" if d['type'] == 'IN' else "🔴"
-                
-                # Layout Kolom: [Icon] [Tanggal] [Keterangan] [Nominal] [Tombol Hapus]
-                c1, c2, c3, c4, c5 = st.columns([0.5, 2, 4, 2, 1.5])
-                
-                c1.write(warna)
-                c2.write(tgl)
-                c3.write(keterangan)
-                c4.write(nominal_fmt)
-                
-                # Tombol Hapus dengan ID Unik
-                if c5.button("Hapus", key=doc_id):
-                    # Hapus dari Firebase
-                    db.collection("transactions").document(doc_id).delete()
-                    st.toast(f"Transaksi '{d['item']}' berhasil dihapus!", icon="🗑️")
-                    st.rerun() # Refresh halaman
-                
-                st.divider() # Garis pemisah antar item
+            # Input Fields
+            item = st.text_input("Keterangan", value=default_item, placeholder="Contoh: Beli Makan")
+            nominal = st.number_input("Nominal (Rp)", value=default_amount, min_value=0, step=1000)
+            kategori = st.selectbox("Kategori", kategori_list)
             
-            if not found_data:
-                st.info("Belum ada riwayat transaksi.")
+            # Tombol Submit (Dinamis: Simpan Baru / Update)
+            btn_text = "💾 Update Data" if st.session_state.edit_mode else "✅ Simpan Transaksi
