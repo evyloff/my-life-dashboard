@@ -277,7 +277,9 @@ def get_merged_events(service):
                 all_events.append(item)
         all_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
         return all_events
-    except: return []
+    except Exception as e:
+        st.error(f"Error fetching events: {e}")
+        return []
 
 def format_rupiah(angka):
     if angka >= 1000000: return f"{angka/1000000:.1f}Jt"
