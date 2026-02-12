@@ -111,7 +111,7 @@ with col_jadwal:
 
 # --- MODUL 2: KEUANGAN ---
 with col_keuangan:
-    st.subheader("💸 Quick Expense")
+    st.subheader("💸 Pengeluaran")
     with st.form("form_keuangan"):
         item = st.text_input("Nama Pengeluaran")
         nominal = st.number_input("Nominal (Rp)", min_value=0, step=1000)
