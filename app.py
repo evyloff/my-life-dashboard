@@ -45,7 +45,7 @@ st.markdown("""
     }
 
     .stApp {
-        background-color: var(--gray-light);
+        /* background-color: var(--gray-light); */
     }
 
     .block-container {
@@ -321,14 +321,14 @@ with col_kiri:
                 
                 st.markdown(f"""
 <div class="list-card b-{source.lower()}">
-    <div class="left-content">
-        <div class="item-main">{icon} {event['summary']}</div>
-        {loc_html}
-    </div>
-    <div class="right-content">
-        <div class="date-text">{tgl}</div>
-        <div class="time-badge">⏰ {jam}</div>
-    </div>
+<div class="left-content">
+<div class="item-main">{icon} {event['summary']}</div>
+{loc_html}
+</div>
+<div class="right-content">
+<div class="date-text">{tgl}</div>
+<div class="time-badge">⏰ {jam}</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
                 
@@ -361,18 +361,18 @@ with col_kanan:
         # FIX: Updated Stats HTML Structure
         st.markdown(f"""
 <div class="stat-container">
-    <div class="stat-card acc-blue">
-        <div class="stat-title">Saldo</div>
-        <div class="stat-value">{format_rupiah(saldo)}</div>
-    </div>
-    <div class="stat-card acc-green">
-        <div class="stat-title">Masuk</div>
-        <div class="stat-value">+{format_rupiah(tot_in)}</div>
-    </div>
-    <div class="stat-card acc-red">
-        <div class="stat-title">Keluar</div>
-        <div class="stat-value">-{format_rupiah(tot_out)}</div>
-    </div>
+<div class="stat-card acc-blue">
+<div class="stat-title">Saldo</div>
+<div class="stat-value">{format_rupiah(saldo)}</div>
+</div>
+<div class="stat-card acc-green">
+<div class="stat-title">Masuk</div>
+<div class="stat-value">+{format_rupiah(tot_in)}</div>
+</div>
+<div class="stat-card acc-red">
+<div class="stat-title">Keluar</div>
+<div class="stat-value">-{format_rupiah(tot_out)}</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
     else:
@@ -443,13 +443,13 @@ with col_kanan:
                 # FIX: Updated Transaction List HTML Structure
                 st.markdown(f"""
 <div class="list-card {css_cls}">
-    <div class="left-content">
-        <div class="item-main">{item['item']}</div>
-        <div class="item-sub">{item['timestamp'].strftime("%d %b")} • {item['category']}</div>
-    </div>
-    <div class="right-content">
-        <div class="money-val" style="color:{color};">{symbol} {format_rupiah_full(item['amount'])}</div>
-    </div>
+<div class="left-content">
+<div class="item-main">{item['item']}</div>
+<div class="item-sub">{item['timestamp'].strftime("%d %b")} • {item['category']}</div>
+</div>
+<div class="right-content">
+<div class="money-val" style="color:{color};">{symbol} {format_rupiah_full(item['amount'])}</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
                 
