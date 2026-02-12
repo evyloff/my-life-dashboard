@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 import datetime
 import re
 import pandas as pd
-import io # Library untuk mengurus file Excel di memori
+import io
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide")
@@ -66,7 +66,6 @@ def get_upcoming_events(service, max_results=10):
     if not service: return []
     try:
         now = datetime.datetime.utcnow().isoformat() + 'Z'
-        # ID Kalender Kuliah Anda
         calendar_id = '7286ff9cd810710bdbc49eb44e4beb288b12b0cd1c7278d741c860eda4dfa019@group.calendar.google.com' 
         
         events_result = service.events().list(
@@ -82,7 +81,7 @@ def get_upcoming_events(service, max_results=10):
 # --- UI UTAMA ---
 st.title("🚀 Rashif's Command Center")
 
-col_jadwal, col_keuangan = st.columns([1, 1])
+col_jadwal, col_keuangan = st.columns([1, 1.2]) # Kolom kanan sedikit lebih lebar
 
 # --- MODUL 1: JADWAL KULIAH ---
 with col_jadwal:
@@ -95,7 +94,6 @@ with col_jadwal:
         else:
             for event in events:
                 start = event['start'].get('dateTime', event['start'].get('date'))
-                
                 try:
                     waktu_obj = datetime.datetime.fromisoformat(start.replace('Z', '+00:00'))
                     waktu_wib = waktu_obj + datetime.timedelta(hours=7)
@@ -105,8 +103,7 @@ with col_jadwal:
                     jam_menit = "Full Day"
                     tanggal = "N/A"
 
-                raw_desc = event.get('description', '')
-                clean_desc = clean_html(raw_desc)
+                clean_desc = clean_html(event.get('description', ''))
                 
                 with st.expander(f"⏰ {tanggal} | {jam_menit} - {event['summary']}"):
                     if clean_desc:
@@ -114,12 +111,15 @@ with col_jadwal:
     else:
         st.warning("Servis Kalender belum aktif.")
 
-# --- MODUL 2: KEUANGAN (GRAFIK & EXCEL) ---
+# --- MODUL 2: MANAJEMEN KEUANGAN (TABS) ---
 with col_keuangan:
-    st.subheader("💰 Manajemen Keuangan")
+    st.subheader("💰 Dompet Digital")
     
-    # --- FORM INPUT ---
-    with st.expander("📝 Catat Transaksi Baru", expanded=False):
+    # MEMBUAT 3 TAB TERPISAH
+    tab_input, tab_grafik, tab_hapus = st.tabs(["📝 Input Data", "📊 Grafik & Laporan", "🗑️ Riwayat & Hapus"])
+
+    # === TAB 1: INPUT DATA ===
+    with tab_input:
         tipe_transaksi = st.radio("Jenis", ["Pengeluaran 📉", "Pemasukan 📈"], horizontal=True)
 
         if tipe_transaksi == "Pemasukan 📈":
@@ -139,10 +139,8 @@ with col_keuangan:
             
             if st.form_submit_button("Simpan Transaksi"):
                 if db:
-                    # Gabungkan Tanggal Input + Jam Sekarang
                     jam_sekarang = datetime.datetime.now().time()
                     waktu_fix = datetime.datetime.combine(tanggal_transaksi, jam_sekarang)
-
                     db.collection("transactions").add({
                         "type": tipe_db,
                         "item": item,
@@ -153,61 +151,74 @@ with col_keuangan:
                     st.success("Data berhasil disimpan!")
                     st.rerun()
 
-    # --- VISUALISASI GRAFIK ---
-    st.write("---")
-    
-    if db:
-        # 1. Tarik Data
-        docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.ASCENDING).stream()
-        data = []
-        for doc in docs:
-            d = doc.to_dict()
-            data.append(d)
-        
-        if data:
-            df = pd.DataFrame(data)
+    # === TAB 2: GRAFIK & LAPORAN ===
+    with tab_grafik:
+        if db:
+            docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.ASCENDING).stream()
+            data = [doc.to_dict() for doc in docs]
             
-            # Rapikan Kolom
-            df['Tanggal'] = pd.to_datetime(df['timestamp']).dt.date
-            df['Tipe'] = df['type'].map({'IN': 'Pemasukan', 'OUT': 'Pengeluaran'})
-            
-            # --- MEMBUAT GRAFIK GARIS ---
-            st.subheader("📈 Tren Keuangan")
-            
-            # Pivot Data: Mengelompokkan berdasarkan Tanggal dan Tipe
-            chart_data = df.pivot_table(index='Tanggal', columns='Tipe', values='amount', aggfunc='sum', fill_value=0)
-            
-            # Tampilkan Grafik
-            st.line_chart(chart_data, color=["#FF4B4B", "#00CC96"]) # Merah (Out), Hijau (In)
-            
-            # --- MEMBUAT EXCEL CANTIK ---
-            st.write("---")
-            st.subheader("📥 Download Laporan")
-            
-            # Buffer untuk menyimpan file Excel di memori
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                # Tulis Data ke Sheet 1
-                df_export = df[['Tanggal', 'Tipe', 'category', 'item', 'amount']].copy()
-                df_export.to_excel(writer, sheet_name='Laporan Keuangan', index=False)
+            if data:
+                df = pd.DataFrame(data)
+                df['Tanggal'] = pd.to_datetime(df['timestamp']).dt.date
+                df['Tipe'] = df['type'].map({'IN': 'Pemasukan', 'OUT': 'Pengeluaran'})
                 
-                # Format Excel (Auto-adjust width)
-                worksheet = writer.sheets['Laporan Keuangan']
-                for i, col in enumerate(df_export.columns):
-                    column_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 2
-                    worksheet.set_column(i, i, column_len)
-                    
-            # Tombol Download
-            st.download_button(
-                label="📥 Download Excel (.xlsx)",
-                data=buffer.getvalue(),
-                file_name=f'Laporan_Keuangan_Rashif_{datetime.date.today()}.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            
-            # Tampilkan Tabel Preview
-            with st.expander("Lihat Tabel Data"):
-                st.dataframe(df_export, use_container_width=True)
+                # Grafik
+                st.caption("Tren Keuangan Harian")
+                chart_data = df.pivot_table(index='Tanggal', columns='Tipe', values='amount', aggfunc='sum', fill_value=0)
+                st.line_chart(chart_data, color=["#FF4B4B", "#00CC96"])
 
-        else:
-            st.info("Belum ada data untuk ditampilkan.")
+                # Download Excel
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    df_export = df[['Tanggal', 'Tipe', 'category', 'item', 'amount']].copy()
+                    df_export.to_excel(writer, sheet_name='Laporan Keuangan', index=False)
+                
+                st.download_button(
+                    label="📥 Download Excel (.xlsx)",
+                    data=buffer.getvalue(),
+                    file_name=f'Laporan_Keuangan_{datetime.date.today()}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+            else:
+                st.info("Belum ada data.")
+
+    # === TAB 3: RIWAYAT & HAPUS (BARU) ===
+    with tab_hapus:
+        st.write("Daftar 10 Transaksi Terakhir (Klik tombol 'Hapus' untuk membatalkan)")
+        
+        if db:
+            # Ambil data beserta ID Dokumennya
+            docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(10).stream()
+            
+            # Kita loop manual agar bisa pasang tombol di sebelah setiap item
+            found_data = False
+            for doc in docs:
+                found_data = True
+                d = doc.to_dict()
+                doc_id = doc.id # Kunci Unik Dokumen
+                
+                # Format Tampilan Baris
+                tgl = d['timestamp'].strftime("%d %b")
+                keterangan = f"**{d['item']}** ({d['category']})"
+                nominal_fmt = f"Rp{d['amount']:,}"
+                warna = "🟢" if d['type'] == 'IN' else "🔴"
+                
+                # Layout Kolom: [Icon] [Tanggal] [Keterangan] [Nominal] [Tombol Hapus]
+                c1, c2, c3, c4, c5 = st.columns([0.5, 2, 4, 2, 1.5])
+                
+                c1.write(warna)
+                c2.write(tgl)
+                c3.write(keterangan)
+                c4.write(nominal_fmt)
+                
+                # Tombol Hapus dengan ID Unik
+                if c5.button("Hapus", key=doc_id):
+                    # Hapus dari Firebase
+                    db.collection("transactions").document(doc_id).delete()
+                    st.toast(f"Transaksi '{d['item']}' berhasil dihapus!", icon="🗑️")
+                    st.rerun() # Refresh halaman
+                
+                st.divider() # Garis pemisah antar item
+            
+            if not found_data:
+                st.info("Belum ada riwayat transaksi.")
