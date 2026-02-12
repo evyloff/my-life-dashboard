@@ -171,4 +171,4 @@ with col_keuangan:
             kategori = st.selectbox("Kategori", kategori_list)
             
             # Tombol Submit (Dinamis: Simpan Baru / Update)
-            btn_text = "💾 Update Data" if st.session_state.edit_mode else "✅ Simpan Transaksi
+            btn_text = "💾 Update Data" if st.session_state.edit_mode else "✅ Simpan Transaksi"
