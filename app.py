@@ -56,7 +56,7 @@ def get_upcoming_events(service, max_results=5):
     try:
         now = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
         events_result = service.events().list(
-            calendarId='syafaatullahrashif@gmail.com', timeMin=now,
+            calendarId='7286ff9cd810710bdbc49eb44e4beb288b12b0cd1c7278d741c860eda4dfa019@group.calendar.google.com', timeMin=now,
             maxResults=max_results, singleEvents=True,
             orderBy='startTime'
         ).execute()
