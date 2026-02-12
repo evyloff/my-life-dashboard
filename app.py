@@ -4,6 +4,7 @@ from firebase_admin import credentials, firestore
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import datetime
+import re  # Library untuk bersih-bersih teks
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide")
@@ -16,7 +17,7 @@ def init_services():
     if 'firebase_key' in st.secrets:
         key_dict = dict(st.secrets['firebase_key'])
     else:
-        # Fallback untuk lokal jika file json ada
+        # Fallback untuk lokal
         try:
             import json
             with open("firebase_key.json") as f:
@@ -36,7 +37,6 @@ def init_services():
 
     # 3. Koneksi Google Calendar
     try:
-        # Scope Read-Only
         SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
         creds = service_account.Credentials.from_service_account_info(
             key_dict, scopes=SCOPES
@@ -51,12 +51,21 @@ def init_services():
 db, calendar_service = init_services()
 
 # --- FUNGSI BANTUAN ---
-def get_upcoming_events(service, max_results=5):
+def clean_html(raw_html):
+    # Hapus tag HTML seperti <table>, <tr>, <td>
+    cleanr = re.compile('<.*?>')
+    cleantext = re.sub(cleanr, '', raw_html)
+    return cleantext.strip()
+
+def get_upcoming_events(service, max_results=10):
     if not service: return []
     try:
-        now = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
+        now = datetime.datetime.utcnow().isoformat() + 'Z'
+        # GANTI ID KALENDER DI SINI (Pastikan ID Panjang tadi tetap dipakai)
+        calendar_id = '7286ff9cd810710bdbc49eb44e4beb288b12b0cd1c7278d741c860eda4dfa019@group.calendar.google.com' 
+        
         events_result = service.events().list(
-            calendarId='7286ff9cd810710bdbc49eb44e4beb288b12b0cd1c7278d741c860eda4dfa019@group.calendar.google.com', timeMin=now,
+            calendarId=calendar_id, timeMin=now,
             maxResults=max_results, singleEvents=True,
             orderBy='startTime'
         ).execute()
@@ -68,12 +77,11 @@ def get_upcoming_events(service, max_results=5):
 # --- UI UTAMA ---
 st.title("🚀 Rashif's Command Center")
 
-# Layout 2 Kolom
 col_jadwal, col_keuangan = st.columns([1, 1])
 
-# --- MODUL 1: JADWAL (GOOGLE CALENDAR) ---
+# --- MODUL 1: JADWAL ---
 with col_jadwal:
-    st.subheader("📅 Agenda Mendatang")
+    st.subheader("📅 Agenda Kuliah & Kegiatan")
     
     if calendar_service:
         events = get_upcoming_events(calendar_service)
@@ -82,22 +90,30 @@ with col_jadwal:
         else:
             for event in events:
                 start = event['start'].get('dateTime', event['start'].get('date'))
-                # Format waktu sederhana
-                waktu_bersih = start.replace('T', ' ')[:16] 
+                # Format waktu: Ambil Jam & Menit saja (contoh: 08:50)
+                waktu_obj = datetime.datetime.fromisoformat(start.replace('Z', '+00:00'))
+                # Sesuaikan ke WIB (UTC+7) secara manual sederhana
+                waktu_wib = waktu_obj + datetime.timedelta(hours=7)
+                jam_menit = waktu_wib.strftime("%H:%M")
+                tanggal = waktu_wib.strftime("%d %b")
                 
-                with st.expander(f"⏰ {waktu_bersih} | {event['summary']}"):
-                    if 'description' in event:
-                        st.write(event['description'])
+                # Bersihkan Deskripsi
+                raw_desc = event.get('description', '')
+                clean_desc = clean_html(raw_desc)
+                
+                with st.expander(f"⏰ {tanggal} | {jam_menit} - {event['summary']}"):
+                    if clean_desc:
+                        st.write(clean_desc)
                     else:
-                        st.caption("Tidak ada deskripsi.")
+                        st.caption("Tidak ada detail ruangan.")
     else:
-        st.warning("Servis Kalender belum aktif. Cek settings API.")
+        st.warning("Servis Kalender belum aktif.")
 
-# --- MODUL 2: INPUT KEUANGAN (FIREBASE) ---
+# --- MODUL 2: KEUANGAN ---
 with col_keuangan:
     st.subheader("💸 Quick Expense")
     with st.form("form_keuangan"):
-        item = st.text_input("Nama Pengeluaran", placeholder="Misal: Kopi Kenangan")
+        item = st.text_input("Nama Pengeluaran")
         nominal = st.number_input("Nominal (Rp)", min_value=0, step=1000)
         kategori = st.selectbox("Kategori", ["Makan", "Transport", "Edu", "Hobi", "Investasi"])
         
@@ -110,5 +126,3 @@ with col_keuangan:
                     "timestamp": firestore.SERVER_TIMESTAMP
                 })
                 st.success("Tersimpan!")
-            else:
-                st.error("Database offline.")
