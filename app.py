@@ -8,141 +8,348 @@ import re
 import pandas as pd
 import pytz
 
-# --- KONFIGURASI ---
+# ==========================================
+# --- KONFIGURASI HALAMAN & CSS ---
+# ==========================================
+st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide", initial_sidebar_state="collapsed")
+
+# Custom CSS untuk UI yang lebih modern dan Mobile Friendly
+st.markdown("""
+<style>
+    /* Hilangkan padding atas default agar lebih compact di HP */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    
+    /* Card Style untuk Event dan Transaksi */
+    .stCard {
+        background-color: #262730;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        border-left: 5px solid #4CAF50;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    /* Warna border berbeda untuk tipe event */
+    .border-KULIAH { border-left-color: #7286ff !important; }
+    .border-ACARA { border-left-color: #ffb74d !important; }
+    .border-TUGAS { border-left-color: #e57373 !important; }
+    .border-IN { border-left-color: #66bb6a !important; } /* Hijau */
+    .border-OUT { border-left-color: #ef5350 !important; } /* Merah */
+
+    /* Typography */
+    h3 { font-size: 1.2rem !important; margin-bottom: 0.5rem !important; }
+    p { margin-bottom: 0.2rem !important; font-size: 0.9rem; }
+    .small-text { font-size: 0.8rem; color: #a0a0a0; }
+    .big-amt { font-weight: bold; font-size: 1.1rem; }
+    
+    /* Tombol Action (Edit/Delete) agar sejajar */
+    .action-btn-container { display: flex; gap: 5px; }
+</style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# --- KONFIGURASI ZONA WAKTU & DATA ---
+# ==========================================
 WIB = pytz.timezone('Asia/Jakarta')
+
 DAFTAR_KALENDER = {
     "KULIAH": "7286ff9cd810710bdbc49eb44e4beb288b12b0cd1c7278d741c860eda4dfa019@group.calendar.google.com",
     "ACARA" : "39a66f64cea2cdb4188f78befbcd721976fc5766304e1b029bf99ab746f6ae64@group.calendar.google.com",
     "TUGAS" : "c22e46406c3e93a487dadce76387bed31e0068bb258cf0bb3cc255095abed019@group.calendar.google.com" 
 }
-ICON_MAP = {"KULIAH": "🎓", "ACARA" : "📌", "TUGAS" : "🔥"}
 
-st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide")
+ICON_MAP = {
+    "KULIAH": "🎓", "ACARA" : "📌", "TUGAS" : "🔥"  
+}
 
-# Custom CSS untuk mempercantik tampilan
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .stExpander { border: none !important; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 8px !important; margin-bottom: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
-
+# Initialize Session State
 if 'edit_mode' not in st.session_state:
     st.session_state.edit_mode = False
     st.session_state.edit_id = None
     st.session_state.edit_data = {}
 
+# --- KONEKSI SERVICES ---
 @st.cache_resource
 def init_services():
-    key_dict = dict(st.secrets['firebase_key']) if 'firebase_key' in st.secrets else None
-    if not key_dict: return None, None
-    if not firebase_admin._apps:
-        cred = credentials.Certificate(key_dict)
-        firebase_admin.initialize_app(cred)
-    db = firestore.client()
-    creds = service_account.Credentials.from_service_account_info(key_dict, scopes=['https://www.googleapis.com/auth/calendar.readonly'])
-    service = build('calendar', 'v3', credentials=creds)
+    key_dict = None
+    if 'firebase_key' in st.secrets:
+        key_dict = dict(st.secrets['firebase_key'])
+    else:
+        try:
+            import json
+            with open("firebase_key.json") as f:
+                key_dict = json.load(f)
+        except: pass
+
+    if not key_dict:
+        st.error("Kunci JSON tidak ditemukan!")
+        return None, None
+
+    # Firebase
+    try:
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(key_dict)
+            firebase_admin.initialize_app(cred)
+        db = firestore.client()
+    except Exception as e:
+        st.error(f"Error Firebase: {e}")
+        db = None
+
+    # Google Calendar
+    try:
+        SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+        creds = service_account.Credentials.from_service_account_info(key_dict, scopes=SCOPES)
+        service = build('calendar', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"Error Google Calendar: {e}")
+        service = None
+
     return db, service
 
 db, calendar_service = init_services()
 
+# --- FUNGSI HELPER ---
 def clean_html(raw_html):
-    return re.sub(re.compile('<.*?>'), '', raw_html).strip() if raw_html else ""
+    if not raw_html: return ""
+    cleanr = re.compile('<.*?>')
+    return re.sub(cleanr, '', raw_html).strip()
 
 def get_merged_events(service):
     if not service: return []
     all_events = []
     now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    for label, cal_id in DAFTAR_KALENDER.items():
-        try:
-            res = service.events().list(calendarId=cal_id, timeMin=now_utc, maxResults=10, singleEvents=True, orderBy='startTime').execute()
-            for item in res.get('items', []):
-                item['_source'] = label
+    
+    try:
+        for label, cal_id in DAFTAR_KALENDER.items():
+            if not cal_id or "@" not in cal_id: continue
+            events_result = service.events().list(
+                calendarId=cal_id, timeMin=now_utc,
+                maxResults=10, singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            items = events_result.get('items', [])
+            for item in items:
+                item['_source'] = label 
                 all_events.append(item)
-        except: continue
-    all_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
-    return all_events[:12]
 
-# --- HEADER SECTION ---
-st.title("🚀 Rashif's Digital HQ")
-st.caption(f"Update Terakhir: {datetime.datetime.now(WIB).strftime('%d %B %Y | %H:%M')} WIB")
+        all_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
+        return all_events[:15]
+    except Exception as e:
+        st.error(f"Gagal mengambil data kalender: {e}")
+        return []
 
-# --- FINANCIAL SUMMARY METRICS ---
-if db:
-    docs = db.collection("transactions").stream()
-    all_data = [d.to_dict() for d in docs]
-    if all_data:
-        df_all = pd.DataFrame(all_data)
-        inc = df_all[df_all['type'] == 'IN']['amount'].sum()
-        out = df_all[df_all['type'] == 'OUT']['amount'].sum()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Pemasukan (Total)", f"Rp {inc:,.0f}", delta_color="normal")
-        m2.metric("Pengeluaran (Total)", f"Rp {out:,.0f}", delta=f"-{out:,.0f}", delta_color="inverse")
-        m3.metric("Saldo Saat Ini", f"Rp {inc-out:,.0f}")
+def format_rupiah(angka):
+    return f"Rp{int(angka):,}".replace(",", ".")
 
-st.write("---")
-col_left, col_right = st.columns([1, 1.4], gap="large")
+# ==========================================
+# --- UI UTAMA ---
+# ==========================================
 
-# --- LEFT COLUMN: CALENDAR ---
-with col_left:
-    st.subheader("📅 Timeline Agenda")
-    events = get_merged_events(calendar_service)
-    if not events:
-        st.info("Santai dulu, belum ada agenda!")
-    for e in events:
-        start = e['start']
-        src = e.get('_source', 'UMUM')
-        ic = ICON_MAP.get(src, "📅")
-        if 'dateTime' in start:
-            dt = datetime.datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00')).astimezone(WIB)
-            time_str = dt.strftime("%H:%M")
-            date_str = dt.strftime("%d %b")
+st.title("🚀 Rashif's Space")
+st.caption(f"Update Terakhir: {datetime.datetime.now(WIB).strftime('%d %B %Y %H:%M WIB')}")
+
+# Layout kolom: Di HP akan otomatis stack ke bawah
+col_jadwal, col_dummy, col_keuangan = st.columns([1, 0.1, 1.2]) 
+
+# --- MODUL 1: JADWAL (CARD STYLE) ---
+with col_jadwal:
+    st.subheader("📅 Agenda")
+    
+    if calendar_service:
+        events = get_merged_events(calendar_service)
+        if not events:
+            st.info("🎉 Tidak ada agenda mendatang.")
         else:
-            time_str = "Seharian"
-            date_str = datetime.datetime.strptime(start['date'], "%Y-%m-%d").strftime("%d %b")
+            # Grouping sederhana untuk UX lebih baik
+            today = datetime.datetime.now(WIB).date()
+            tomorrow = today + datetime.timedelta(days=1)
+            
+            current_group = None
+            
+            for event in events:
+                start = event['start']
+                source = event.get('_source', 'UMUM')
+                icon = ICON_MAP.get(source, "📅")
+
+                # Parsing Waktu
+                if 'dateTime' in start:
+                    dt_obj = datetime.datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
+                    dt_wib = dt_obj.astimezone(WIB)
+                    ev_date = dt_wib.date()
+                    jam_str = dt_wib.strftime("%H:%M")
+                else:
+                    t_obj = datetime.datetime.strptime(start['date'], "%Y-%m-%d")
+                    ev_date = t_obj.date()
+                    jam_str = "Seharian"
+
+                # Tentukan Label Group
+                if ev_date == today: group_label = "Hari Ini"
+                elif ev_date == tomorrow: group_label = "Besok"
+                else: group_label = ev_date.strftime("%d %B %Y") # Format tanggal lainnya
+
+                # Tampilkan Header Group jika berubah
+                if group_label != current_group:
+                    st.markdown(f"**{group_label}**")
+                    current_group = group_label
+
+                # Render Card HTML
+                loc = f"📍 {event['location'][:20]}..." if 'location' in event else ""
+                html_card = f"""
+                <div class="stCard border-{source}">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="font-weight:bold;">{icon} {event['summary']}</span>
+                        <span style="background:#333; padding:2px 6px; border-radius:4px; font-size:0.8rem;">{jam_str}</span>
+                    </div>
+                    <div class="small-text" style="margin-top:5px;">
+                        {loc}
+                    </div>
+                </div>
+                """
+                st.markdown(html_card, unsafe_allow_html=True)
+                
+    else:
+        st.warning("Google Service Offline")
+
+# --- MODUL 2: KEUANGAN (DASHBOARD STYLE) ---
+with col_keuangan:
+    st.subheader("💰 Keuangan")
+    
+    # Ambil Data dulu untuk Dashboard
+    df = pd.DataFrame()
+    raw_data = []
+    
+    if db:
+        docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(50).stream()
+        for doc in docs:
+            d = doc.to_dict()
+            d['id'] = doc.id
+            raw_data.append(d)
         
-        with st.expander(f"**{date_str}** | {ic} **{time_str}** - {e['summary']}"):
-            st.markdown(f"**Kategori:** `{src}`")
-            desc = clean_html(e.get('description', ''))
-            if desc: st.info(desc)
-            if 'location' in e: st.caption(f"📍 {e['location']}")
+        if raw_data:
+            df = pd.DataFrame(raw_data)
+            df['Tanggal'] = pd.to_datetime(df['timestamp']).dt.date
+    
+    # 1. Dashboard Mini (Metrics)
+    if not df.empty:
+        # Filter bulan ini sederhana (opsional, disini ambil total dari 50 transaksi terakhir)
+        tot_in = df[df['type']=='IN']['amount'].sum()
+        tot_out = df[df['type']=='OUT']['amount'].sum()
+        saldo = tot_in - tot_out
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Saldo", f"{saldo/1000:.0f}k", delta_color="normal")
+        m2.metric("Masuk", f"{tot_in/1000:.0f}k", delta="📈")
+        m3.metric("Keluar", f"{tot_out/1000:.0f}k", delta="-📉")
+        st.divider()
 
-# --- RIGHT COLUMN: FINANCE ---
-with col_right:
-    st.subheader("💸 Pengelola Keuangan")
-    t_in, t_hist = st.tabs(["➕ Catat Baru", "📈 Analisis & Riwayat"])
+    # Tabs UI
+    tab_in, tab_hist = st.tabs(["📝 Input / Edit", "📜 Riwayat"])
 
-    with t_in:
-        with st.form("fm"):
-            cc1, cc2 = st.columns(2)
-            tipe = cc1.radio("Aksi", ["Keluar 📉", "Masuk 📈"], horizontal=True)
-            tgl = cc2.date_input("Tanggal", datetime.date.today())
+    with tab_in:
+        # Mode Edit UI
+        if st.session_state.edit_mode:
+            st.warning(f"Sedang mengedit: {st.session_state.edit_data.get('item')}")
+            def_tipe = 1 if st.session_state.edit_data.get('type') == 'IN' else 0
+            def_item = st.session_state.edit_data.get('item')
+            def_amt = st.session_state.edit_data.get('amount')
+            btn_label = "💾 Update Perubahan"
+        else:
+            def_tipe, def_item, def_amt = 0, "", 0
+            btn_label = "✅ Simpan Transaksi"
+
+        with st.form("form_finance", clear_on_submit=not st.session_state.edit_mode):
+            c_tipe, c_tgl = st.columns(2)
+            with c_tipe:
+                t_pilih = st.radio("Tipe", ["Pengeluaran 📉", "Pemasukan 📈"], index=def_tipe)
+            with c_tgl:
+                tgl_pilih = st.date_input("Tanggal", datetime.date.today())
+
+            if "Pemasukan" in t_pilih:
+                kat_list = ["Uang Saku", "Gaji", "Bonus", "Lainnya"]
+                t_db = "IN"
+            else:
+                kat_list = ["Makan", "Transport", "Jajan", "Pendidikan", "Belanja", "Lainnya"]
+                t_db = "OUT"
             
-            item = st.text_input("Nama Transaksi", placeholder="Misal: Nasi Padang")
-            col_a, col_b = st.columns(2)
-            amt = col_a.number_input("Nominal (Rp)", min_value=0, step=5000)
-            kat = col_b.selectbox("Kategori", ["Makan", "Transport", "Pendidikan", "Uang Saku", "Lainnya"])
+            f_item = st.text_input("Nama Transaksi", value=def_item, placeholder="Contoh: Nasi Goreng")
+            f_amt = st.number_input("Nominal (Rp)", value=int(def_amt), min_value=0, step=1000)
+            f_kat = st.selectbox("Kategori", kat_list)
             
-            if st.form_submit_button("Simpan Data"):
-                tp = "IN" if "Masuk" in tipe else "OUT"
-                db.collection("transactions").add({"type": tp, "item": item, "amount": amt, "category": kat, "timestamp": datetime.datetime.combine(tgl, datetime.datetime.now().time())})
-                st.success("Tersimpan!")
+            submitted = st.form_submit_button(btn_label, use_container_width=True)
+            
+            if submitted:
+                if db:
+                    waktu_fix = datetime.datetime.combine(tgl_pilih, datetime.datetime.now().time())
+                    payload = {"type": t_db, "item": f_item, "amount": f_amt, "category": f_kat, "timestamp": waktu_fix}
+                    
+                    if st.session_state.edit_mode:
+                        db.collection("transactions").document(st.session_state.edit_id).update(payload)
+                        st.success("Data berhasil diupdate!")
+                        st.session_state.edit_mode = False
+                        st.session_state.edit_id = None
+                        st.session_state.edit_data = {}
+                    else:
+                        db.collection("transactions").add(payload)
+                        st.success("Data tersimpan!")
+                    st.rerun()
+                else:
+                    st.error("Database tidak terkoneksi.")
+
+        if st.session_state.edit_mode:
+            if st.button("Batal Edit", use_container_width=True):
+                st.session_state.edit_mode = False
                 st.rerun()
 
-    with t_hist:
-        if all_data:
-            df = pd.DataFrame(all_data)
-            df['Tgl'] = pd.to_datetime(df['timestamp']).dt.date
-            df['Tipe'] = df['type'].map({'IN': 'Masuk', 'OUT': 'Keluar'})
-            st.line_chart(df.pivot_table(index='Tgl', columns='Tipe', values='amount', aggfunc='sum', fill_value=0))
+    with tab_hist:
+        if raw_data:
+            # Grafik simple
+            st.area_chart(df.pivot_table(index='timestamp', columns='type', values='amount', aggfunc='sum', fill_value=0), height=150, color=["#66bb6a", "#ef5350"])
             
-            st.write("#### 10 Transaksi Terakhir")
-            for _, r in df.sort_values('timestamp', ascending=False).head(10).iterrows():
+            st.write("### Daftar Transaksi")
+            for item in raw_data:
+                # Menentukan warna dan simbol
+                is_in = item['type'] == 'IN'
+                color_class = "border-IN" if is_in else "border-OUT"
+                symbol = "+" if is_in else "-"
+                color_text = "#66bb6a" if is_in else "#ef5350"
+                
+                # Layout Custom Card untuk Transaksi
                 with st.container():
-                    c_a, c_b, c_c = st.columns([2, 5, 2])
-                    c_a.caption(r['timestamp'].strftime("%d/%m %H:%M"))
-                    icon_t = "🟢" if r['type'] == 'IN' else "🔴"
-                    c_b.markdown(f"{icon_t} **{r['item']}** \n*{r['category']}*")
-                    c_c.write(f"Rp {r['amount']:,}")
-                    st.divider()
+                    col_info, col_act = st.columns([4, 1])
+                    
+                    with col_info:
+                        # Render HTML Card
+                        st.markdown(f"""
+                        <div class="stCard {color_class}" style="padding: 10px; margin-bottom: 5px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <div style="font-weight:bold;">{item['item']}</div>
+                                    <div class="small-text">{item['timestamp'].strftime("%d %b %H:%M")} • {item['category']}</div>
+                                </div>
+                                <div class="big-amt" style="color:{color_text};">
+                                    {symbol} {format_rupiah(item['amount'])}
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_act:
+                        # Tombol Edit & Delete
+                        # Menggunakan columns lagi agar tombol tidak terlalu besar
+                        st.write("") # Spacer
+                        b1, b2 = st.columns(2)
+                        if b1.button("✏️", key=f"e_{item['id']}"):
+                            st.session_state.edit_mode = True
+                            st.session_state.edit_id = item['id']
+                            st.session_state.edit_data = item
+                            st.rerun()
+                        
+                        if b2.button("🗑️", key=f"d_{item['id']}"):
+                            db.collection("transactions").document(item['id']).delete()
+                            st.toast("Transaksi dihapus!")
+                            st.rerun()
+        else:
+            st.info("Belum ada data transaksi.")
