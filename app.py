@@ -5,7 +5,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import datetime
 import re
-import pandas as pd # Wajib untuk manipulasi data Excel/CSV
+import pandas as pd
+import io # Library untuk mengurus file Excel di memori
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Rashif's Dashboard", page_icon="🚀", layout="wide")
@@ -85,7 +86,7 @@ col_jadwal, col_keuangan = st.columns([1, 1])
 
 # --- MODUL 1: JADWAL KULIAH ---
 with col_jadwal:
-    st.subheader("📅 Agenda Kuliah & Kegiatan")
+    st.subheader("📅 Agenda Kuliah")
     
     if calendar_service:
         events = get_upcoming_events(calendar_service)
@@ -110,82 +111,103 @@ with col_jadwal:
                 with st.expander(f"⏰ {tanggal} | {jam_menit} - {event['summary']}"):
                     if clean_desc:
                         st.write(f"**Detail:** {clean_desc}")
-                    else:
-                        st.caption("Tidak ada detail ruangan.")
     else:
         st.warning("Servis Kalender belum aktif.")
 
-# --- MODUL 2: KEUANGAN (FULL FITUR) ---
+# --- MODUL 2: KEUANGAN (GRAFIK & EXCEL) ---
 with col_keuangan:
     st.subheader("💰 Manajemen Keuangan")
     
     # --- FORM INPUT ---
-    with st.expander("📝 Catat Transaksi Baru", expanded=True):
+    with st.expander("📝 Catat Transaksi Baru", expanded=False):
         tipe_transaksi = st.radio("Jenis", ["Pengeluaran 📉", "Pemasukan 📈"], horizontal=True)
 
         if tipe_transaksi == "Pemasukan 📈":
             kategori_list = ["Uang Saku", "Gaji/Freelance", "Hadiah/Bonus", "Investasi Return", "Lainnya"]
             label_nominal = "Jumlah Masuk (Rp)"
+            tipe_db = "IN"
         else:
             kategori_list = ["Makan & Minum", "Transportasi", "Pendidikan/Buku", "Hobi & Game", "Belanja Bulanan", "Investasi Keluar"]
             label_nominal = "Jumlah Keluar (Rp)"
+            tipe_db = "OUT"
 
         with st.form("form_keuangan"):
             item = st.text_input("Keterangan", placeholder="Contoh: Beli Buku Kalkulus")
             nominal = st.number_input(label_nominal, min_value=0, step=1000)
             kategori = st.selectbox("Kategori", kategori_list)
+            tanggal_transaksi = st.date_input("Tanggal", datetime.date.today())
             
             if st.form_submit_button("Simpan Transaksi"):
                 if db:
+                    # Gabungkan Tanggal Input + Jam Sekarang
+                    jam_sekarang = datetime.datetime.now().time()
+                    waktu_fix = datetime.datetime.combine(tanggal_transaksi, jam_sekarang)
+
                     db.collection("transactions").add({
-                        "type": "IN" if "Pemasukan" in tipe_transaksi else "OUT",
+                        "type": tipe_db,
                         "item": item,
                         "amount": nominal,
                         "category": kategori,
-                        "timestamp": firestore.SERVER_TIMESTAMP # Waktu Server
+                        "timestamp": waktu_fix
                     })
                     st.success("Data berhasil disimpan!")
-                    st.rerun() # Refresh halaman otomatis
+                    st.rerun()
 
-    # --- LAPORAN & DOWNLOAD ---
+    # --- VISUALISASI GRAFIK ---
     st.write("---")
-    st.subheader("📊 Laporan Transaksi")
     
     if db:
-        # 1. Tarik Data dari Firebase
-        docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.DESCENDING).stream()
+        # 1. Tarik Data
+        docs = db.collection("transactions").order_by("timestamp", direction=firestore.Query.ASCENDING).stream()
         data = []
         for doc in docs:
             d = doc.to_dict()
-            # Bersihkan Timestamp agar bisa masuk Excel
-            if d.get("timestamp"):
-                d["timestamp"] = d["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
             data.append(d)
         
-        # 2. Buat DataFrame (Tabel) Pandas
         if data:
             df = pd.DataFrame(data)
             
-            # Rapikan nama kolom
-            df = df.rename(columns={
-                "timestamp": "Waktu",
-                "item": "Keterangan",
-                "amount": "Nominal",
-                "category": "Kategori",
-                "type": "Tipe"
-            })
+            # Rapikan Kolom
+            df['Tanggal'] = pd.to_datetime(df['timestamp']).dt.date
+            df['Tipe'] = df['type'].map({'IN': 'Pemasukan', 'OUT': 'Pengeluaran'})
             
-            # Tampilkan Tabel Preview (5 Teratas)
-            st.dataframe(df.head(5), use_container_width=True)
+            # --- MEMBUAT GRAFIK GARIS ---
+            st.subheader("📈 Tren Keuangan")
             
-            # 3. Tombol Download CSV
-            csv = df.to_csv(index=False).encode('utf-8')
+            # Pivot Data: Mengelompokkan berdasarkan Tanggal dan Tipe
+            chart_data = df.pivot_table(index='Tanggal', columns='Tipe', values='amount', aggfunc='sum', fill_value=0)
             
+            # Tampilkan Grafik
+            st.line_chart(chart_data, color=["#FF4B4B", "#00CC96"]) # Merah (Out), Hijau (In)
+            
+            # --- MEMBUAT EXCEL CANTIK ---
+            st.write("---")
+            st.subheader("📥 Download Laporan")
+            
+            # Buffer untuk menyimpan file Excel di memori
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                # Tulis Data ke Sheet 1
+                df_export = df[['Tanggal', 'Tipe', 'category', 'item', 'amount']].copy()
+                df_export.to_excel(writer, sheet_name='Laporan Keuangan', index=False)
+                
+                # Format Excel (Auto-adjust width)
+                worksheet = writer.sheets['Laporan Keuangan']
+                for i, col in enumerate(df_export.columns):
+                    column_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 2
+                    worksheet.set_column(i, i, column_len)
+                    
+            # Tombol Download
             st.download_button(
-                label="📥 Download Laporan (Excel/CSV)",
-                data=csv,
-                file_name=f'laporan_keuangan_{datetime.date.today()}.csv',
-                mime='text/csv',
+                label="📥 Download Excel (.xlsx)",
+                data=buffer.getvalue(),
+                file_name=f'Laporan_Keuangan_Rashif_{datetime.date.today()}.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+            
+            # Tampilkan Tabel Preview
+            with st.expander("Lihat Tabel Data"):
+                st.dataframe(df_export, use_container_width=True)
+
         else:
-            st.info("Belum ada data transaksi.")
+            st.info("Belum ada data untuk ditampilkan.")
